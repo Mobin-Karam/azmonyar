@@ -15,24 +15,28 @@
   "use strict";
 
   // ============================================================
-  // آزمون‌یار Console Edition v3.1
-  // مخصوص Moodle / Ravin Academy و سایت‌های مشابه
+  // آزمونیار Console Edition v3.2
+  // مخصوص Moodle / Ravin Academy و سایتهای مشابه
   //
   // FIXES:
   // ✓ تشخیص صحیح شماره سؤال از .rui-qno
-  // ✓ استخراج همه سؤال‌های موجود در DOM
+  // ✓ استخراج همه سؤالهای موجود در DOM
   // ✓ پشتیبانی از 50+ سؤال در یک صفحه
   // ✓ تشخیص تعداد سؤال از input[name="slots"]
-  // ✓ تشخیص سؤال‌ها از quiz navigation
-  // ✓ ذخیره سؤال‌ها در localStorage
+  // ✓ تشخیص سؤالها از quiz navigation
+  // ✓ ذخیره سؤالها در localStorage
   // ✓ خروجی TXT شامل Prompt آماده برای ChatGPT
   // ✓ Copy Prompt + Questions
   // ✓ Import answer key
   // ✓ Auto Fill
+  // ✓ Onboarding حرفه‌ای ۵ مرحله‌ای
+  // ✓ Settings کامل و همگام با Home
+  // ✓ Backup JSON + پاک‌سازی امن آزمون فعلی
+  // ✓ تنظیم باز شدن پنل و Toast notifications
   // ✓ بدون Submit خودکار
   // ============================================================
 
-  const APP_ID = "__azmoonyar_v31__";
+  const APP_ID = "__azmoonyar_v32__";
   const STORAGE_KEY = "azmoonyar_v3_state";
   const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -40,13 +44,13 @@
   // If already running, just open panel
   // ------------------------------------------------------------
 
-  if (window.__AZMOONYAR_V31_RUNNING__) {
+  if (window.__AZMOONYAR_V32_RUNNING__) {
     document.querySelector("#azy-panel")?.classList.remove("azy-hidden");
     document.querySelector("#azy-bubble")?.classList.add("azy-hidden");
     return;
   }
 
-  window.__AZMOONYAR_V31_RUNNING__ = true;
+  window.__AZMOONYAR_V32_RUNNING__ = true;
 
   // ============================================================
   // STATE
@@ -55,7 +59,16 @@
   const DEFAULT_STATE = {
     settings: {
       autoCapture: true,
-      autoFill: false
+      autoFill: false,
+      openOnStart: false,
+      notifications: true
+    },
+
+    onboarding: {
+      completed: false,
+      disabled: false,
+      remindAfter: 0,
+      lastStep: 1
     },
 
     exams: {}
@@ -74,6 +87,11 @@
         settings: {
           ...DEFAULT_STATE.settings,
           ...(saved.settings || {})
+        },
+
+        onboarding: {
+          ...DEFAULT_STATE.onboarding,
+          ...(saved.onboarding || {})
         },
 
         exams: saved.exams || {}
@@ -127,6 +145,36 @@
         "'": "&#039;"
       })[c]
     );
+  }
+
+  function formatBytes(bytes = 0) {
+    const value = Number(bytes) || 0;
+
+    if (value < 1024) {
+      return `${value} B`;
+    }
+
+    if (value < 1024 * 1024) {
+      return `${(value / 1024).toFixed(1)} KB`;
+    }
+
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function getStorageSize() {
+    try {
+      return new Blob([
+        localStorage.getItem(STORAGE_KEY) || ""
+      ]).size;
+    } catch {
+      return 0;
+    }
+  }
+
+  function getSavedAnswerCount() {
+    return Object.keys(
+      getExam().answers || {}
+    ).length;
   }
 
   // ============================================================
@@ -989,6 +1037,97 @@ Now answer the questions below:
   }
 
   // ============================================================
+  // SETTINGS / BACKUP
+  // ============================================================
+
+  function downloadBackup() {
+    const backup = {
+      app: "AzmoonYar Console",
+      version: "3.2.0",
+      exportedAt: new Date().toISOString(),
+      hostname: location.hostname,
+      state
+    };
+
+    const blob = new Blob(
+      [JSON.stringify(backup, null, 2)],
+      {
+        type: "application/json;charset=utf-8"
+      }
+    );
+
+    const url =
+      URL.createObjectURL(
+        blob
+      );
+
+    const anchor =
+      document.createElement(
+        "a"
+      );
+
+    anchor.href =
+      url;
+
+    anchor.download =
+      `azmoonyar-backup-${new Date().toISOString().slice(0, 10)}.json`;
+
+    document.body.appendChild(
+      anchor
+    );
+
+    anchor.click();
+    anchor.remove();
+
+    setTimeout(
+      () =>
+        URL.revokeObjectURL(
+          url
+        ),
+      2000
+    );
+
+    toast(
+      "پشتیبان JSON آزمونیار دانلود شد.",
+      "success"
+    );
+  }
+
+  function clearCurrentExamData() {
+    const key =
+      getExamKey();
+
+    delete state.exams[key];
+
+    saveState();
+
+    getExam();
+
+    const answerArea =
+      $("#azy-answer-key");
+
+    if (answerArea) {
+      answerArea.value = "";
+    }
+
+    const results =
+      $("#azy-results");
+
+    if (results) {
+      results.innerHTML = "";
+    }
+
+    updateUI();
+
+    toast(
+      "دادههای ذخیرهشده همین آزمون پاک شدند.",
+      "success",
+      3200,
+      true
+    );
+  }
+
+  // ============================================================
   // ANSWER KEY PARSER
   // ============================================================
 
@@ -1748,7 +1887,7 @@ Now answer the questions below:
     .azy-tabs{
       position:relative;
       display:grid;
-      grid-template-columns:repeat(3,1fr);
+      grid-template-columns:repeat(4,1fr);
       gap:6px;
       padding:9px 10px 8px;
       border-bottom:1px solid var(--azy-border);
@@ -2252,6 +2391,336 @@ Now answer the questions below:
     }
 
     /* ---------------------------------------------------------
+       Settings
+    --------------------------------------------------------- */
+
+    .azy-settings-group{
+      margin-bottom:12px;
+      overflow:hidden;
+      border:1px solid var(--azy-border);
+      border-radius:15px;
+      background:rgba(255,255,255,.015);
+    }
+
+    .azy-settings-head{
+      padding:11px 12px 9px;
+      border-bottom:1px solid var(--azy-border);
+      background:linear-gradient(180deg,rgba(255,255,255,.025),transparent);
+    }
+
+    .azy-settings-head b{
+      display:block;
+      color:#e2e8f0;
+      font-size:10px;
+      font-weight:850;
+    }
+
+    .azy-settings-head span{
+      display:block;
+      margin-top:3px;
+      color:#64748b;
+      font-size:8px;
+      line-height:1.6;
+    }
+
+    .azy-settings-body{
+      padding:4px 10px 10px;
+    }
+
+    .azy-settings-body .azy-toggle{
+      margin-top:7px;
+      border-color:rgba(148,163,184,.11);
+      background:rgba(2,6,23,.15);
+    }
+
+    .azy-settings-actions{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+      padding:10px;
+    }
+
+    .azy-storage-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:10px 12px;
+      border-top:1px solid var(--azy-border);
+      color:#94a3b8;
+      font-size:8px;
+    }
+
+    .azy-storage-row strong{
+      color:#cbd5e1;
+      font-size:9px;
+    }
+
+    .azy-privacy-card{
+      padding:11px 12px;
+      display:flex;
+      align-items:flex-start;
+      gap:9px;
+      border:1px solid rgba(16,185,129,.13);
+      border-radius:13px;
+      background:rgba(16,185,129,.045);
+      color:#8ecfb9;
+      font-size:8px;
+      line-height:1.75;
+    }
+
+    .azy-privacy-icon{
+      width:28px;
+      height:28px;
+      flex:0 0 28px;
+      display:grid;
+      place-items:center;
+      border-radius:9px;
+      background:rgba(16,185,129,.09);
+      color:#6ee7b7;
+      font-size:13px;
+      font-weight:900;
+    }
+
+    /* ---------------------------------------------------------
+       Onboarding
+    --------------------------------------------------------- */
+
+    .azy-onboarding-modal{
+      background:
+        radial-gradient(circle at 50% 20%,rgba(99,102,241,.13),transparent 36%),
+        rgba(2,6,23,.78);
+      backdrop-filter:blur(12px);
+      -webkit-backdrop-filter:blur(12px);
+    }
+
+    .azy-onboarding-card{
+      width:min(430px,100%);
+      max-height:calc(100vh - 24px);
+      overflow:auto;
+      scrollbar-width:thin;
+      scrollbar-color:#334155 transparent;
+      border:1px solid rgba(148,163,184,.24);
+      border-radius:22px;
+      background:
+        radial-gradient(circle at 100% 0%,rgba(99,102,241,.12),transparent 32%),
+        linear-gradient(180deg,#0f1a2d,#081321);
+      box-shadow:0 34px 100px rgba(0,0,0,.58);
+      transform:translateY(14px) scale(.975);
+      transition:transform .22s cubic-bezier(.2,.8,.2,1);
+    }
+
+    .azy-modal.show .azy-onboarding-card{
+      transform:translateY(0) scale(1);
+    }
+
+    .azy-onboarding-top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:12px 13px 10px;
+      border-bottom:1px solid var(--azy-border);
+    }
+
+    .azy-onboarding-brand{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      min-width:0;
+    }
+
+    .azy-onboarding-mini-logo{
+      width:32px;
+      height:32px;
+      flex:0 0 32px;
+      display:grid;
+      place-items:center;
+      border-radius:10px;
+      background:linear-gradient(145deg,var(--azy-primary),var(--azy-primary-2));
+      color:#fff;
+      font-size:15px;
+      font-weight:900;
+      box-shadow:0 7px 16px rgba(79,70,229,.25);
+    }
+
+    .azy-onboarding-brand b{
+      display:block;
+      color:#fff;
+      font-size:11px;
+    }
+
+    .azy-onboarding-brand small{
+      display:block;
+      margin-top:2px;
+      color:#6f7d91;
+      font-size:8px;
+    }
+
+    .azy-onboarding-step-count{
+      flex:0 0 auto;
+      padding:5px 8px;
+      border:1px solid rgba(99,102,241,.22);
+      border-radius:999px;
+      background:rgba(99,102,241,.08);
+      color:#c7d2fe;
+      font-size:8px;
+      font-weight:800;
+    }
+
+    .azy-onboarding-progress{
+      height:3px;
+      background:#07101d;
+    }
+
+    #azy-onboarding-progress-bar{
+      width:20%;
+      height:100%;
+      background:linear-gradient(90deg,#6366f1,#8b5cf6,#10b981);
+      transition:width .25s cubic-bezier(.2,.8,.2,1);
+    }
+
+    .azy-onboarding-content{
+      min-height:340px;
+      padding:20px 20px 14px;
+    }
+
+    .azy-onboarding-step{
+      display:none;
+      animation:azyOnboardIn .22s ease;
+    }
+
+    .azy-onboarding-step.active{
+      display:block;
+    }
+
+    @keyframes azyOnboardIn{
+      from{opacity:0;transform:translateY(6px)}
+      to{opacity:1;transform:translateY(0)}
+    }
+
+    .azy-onboarding-visual{
+      width:72px;
+      height:72px;
+      margin:0 auto 17px;
+      display:grid;
+      place-items:center;
+      border:1px solid rgba(99,102,241,.22);
+      border-radius:22px;
+      background:
+        radial-gradient(circle at 30% 25%,rgba(255,255,255,.14),transparent 30%),
+        linear-gradient(145deg,rgba(99,102,241,.18),rgba(139,92,246,.08));
+      color:#c7d2fe;
+      font-size:28px;
+      font-weight:900;
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.018);
+    }
+
+    .azy-onboarding-step h2{
+      margin:0;
+      color:#fff;
+      text-align:center;
+      font-size:17px;
+      line-height:1.5;
+      font-weight:900;
+    }
+
+    .azy-onboarding-step > p{
+      max-width:340px;
+      margin:8px auto 0;
+      color:#94a3b8;
+      text-align:center;
+      font-size:9px;
+      line-height:1.9;
+    }
+
+    .azy-onboarding-points{
+      display:grid;
+      gap:7px;
+      margin-top:17px;
+    }
+
+    .azy-onboarding-point{
+      display:flex;
+      align-items:flex-start;
+      gap:8px;
+      padding:9px 10px;
+      border:1px solid rgba(148,163,184,.11);
+      border-radius:11px;
+      background:rgba(255,255,255,.018);
+      color:#a9b5c7;
+      font-size:8px;
+      line-height:1.7;
+    }
+
+    .azy-onboarding-point i{
+      width:20px;
+      height:20px;
+      flex:0 0 20px;
+      display:grid;
+      place-items:center;
+      border-radius:7px;
+      background:rgba(99,102,241,.09);
+      color:#a5b4fc;
+      font-style:normal;
+      font-size:9px;
+      font-weight:900;
+    }
+
+    .azy-onboarding-dots{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:5px;
+      padding:0 14px 11px;
+    }
+
+    .azy-onboarding-dot{
+      width:6px;
+      height:6px;
+      border-radius:999px;
+      background:#26354b;
+      transition:.18s ease;
+    }
+
+    .azy-onboarding-dot.active{
+      width:20px;
+      background:linear-gradient(90deg,var(--azy-primary),var(--azy-primary-2));
+      box-shadow:0 0 10px rgba(99,102,241,.3);
+    }
+
+    .azy-onboarding-actions{
+      display:grid;
+      grid-template-columns:1fr 1.45fr 1fr;
+      gap:7px;
+      padding:10px 11px;
+      border-top:1px solid var(--azy-border);
+      background:rgba(2,6,23,.24);
+    }
+
+    .azy-onboarding-secondary{
+      display:flex;
+      justify-content:center;
+      gap:14px;
+      padding:0 10px 11px;
+      background:rgba(2,6,23,.24);
+    }
+
+    .azy-link-btn{
+      padding:3px;
+      border:0;
+      background:transparent;
+      color:#64748b;
+      cursor:pointer;
+      font-size:8px;
+    }
+
+    .azy-link-btn:hover{
+      color:#cbd5e1;
+      text-decoration:underline;
+    }
+
+    /* ---------------------------------------------------------
        Modal
     --------------------------------------------------------- */
 
@@ -2617,8 +3086,8 @@ Now answer the questions below:
     <button
       id="azy-bubble"
       type="button"
-      aria-label="باز کردن آزمون‌یار"
-      title="آزمون‌یار"
+      aria-label="باز کردن آزمونیار"
+      title="آزمونیار"
     >
       آ
       <span id="azy-badge">0</span>
@@ -2628,7 +3097,7 @@ Now answer the questions below:
       id="azy-panel"
       class="azy-hidden"
       role="dialog"
-      aria-label="آزمون‌یار"
+      aria-label="آزمونیار"
     >
       <header class="azy-header">
         <div class="azy-brand">
@@ -2636,11 +3105,11 @@ Now answer the questions below:
 
           <div class="azy-brand-copy">
             <div class="azy-brand-title-row">
-              <b>آزمون‌یار</b>
+              <b>آزمونیار</b>
               <span class="azy-live-dot" title="فعال"></span>
             </div>
 
-            <small>دستیار استخراج و پاسخ آزمون‌های تمرینی</small>
+            <small>دستیار استخراج و پاسخ آزمونهای تمرینی</small>
           </div>
         </div>
 
@@ -2660,7 +3129,7 @@ Now answer the questions below:
             id="azy-close"
             type="button"
             title="بستن"
-            aria-label="بستن آزمون‌یار"
+            aria-label="بستن آزمونیار"
           >
             ×
           </button>
@@ -2676,7 +3145,7 @@ Now answer the questions below:
         <span id="azy-status-chip">فعال</span>
       </div>
 
-      <nav class="azy-tabs" aria-label="بخش‌های آزمون‌یار">
+      <nav class="azy-tabs" aria-label="بخشهای آزمونیار">
         <button
           class="azy-tab active"
           type="button"
@@ -2698,7 +3167,15 @@ Now answer the questions below:
           type="button"
           data-tab="answers"
         >
-          ✓ پاسخ‌ها
+          ✓ پاسخها
+        </button>
+
+        <button
+          class="azy-tab"
+          type="button"
+          data-tab="settings"
+        >
+          ⚙ تنظیمات
         </button>
       </nav>
 
@@ -2717,7 +3194,7 @@ Now answer the questions below:
 
             <div class="azy-stat">
               <b id="azy-saved">0</b>
-              <span>ذخیره‌شده</span>
+              <span>ذخیرهشده</span>
             </div>
 
             <div class="azy-stat">
@@ -2728,7 +3205,7 @@ Now answer the questions below:
 
           <div class="azy-progress">
             <div class="azy-progress-row">
-              <span>پیشرفت جمع‌آوری سؤال‌ها</span>
+              <span>پیشرفت جمعآوری سؤالها</span>
               <b id="azy-progress-text">0 / 0</b>
             </div>
 
@@ -2745,7 +3222,7 @@ Now answer the questions below:
               id="azy-scan"
               type="button"
             >
-              ↻ اسکن همه سؤال‌ها
+              ↻ اسکن همه سؤالها
             </button>
 
             <button
@@ -2769,26 +3246,26 @@ Now answer the questions below:
               id="azy-preview"
               type="button"
             >
-              ◫ پیش‌نمایش خروجی
+              ◫ پیشنمایش خروجی
             </button>
           </div>
 
           <label class="azy-toggle">
             <span>
-              <b>ذخیره خودکار سؤال‌ها</b>
+              <b>ذخیره خودکار سؤالها</b>
               <small>
-                سؤال‌های جدیدی که وارد صفحه می‌شوند به‌صورت خودکار ذخیره شوند.
+                سؤالهای جدیدی که وارد صفحه میشوند بهصورت خودکار ذخیره شوند.
               </small>
             </span>
 
             <input
               type="checkbox"
               id="azy-auto-capture"
-              aria-label="ذخیره خودکار سؤال‌ها"
+              aria-label="ذخیره خودکار سؤالها"
             >
           </label>
 
-          <div class="azy-section">پاسخ‌دهی</div>
+          <div class="azy-section">پاسخدهی</div>
 
           <div class="azy-grid">
             <button
@@ -2796,7 +3273,7 @@ Now answer the questions below:
               id="azy-fill"
               type="button"
             >
-              ✓ پر کردن پاسخ‌ها
+              ✓ پر کردن پاسخها
             </button>
 
             <button
@@ -2804,7 +3281,7 @@ Now answer the questions below:
               id="azy-check"
               type="button"
             >
-              ◎ بررسی انتخاب‌ها
+              ◎ بررسی انتخابها
             </button>
           </div>
 
@@ -2812,7 +3289,7 @@ Now answer the questions below:
             <span>
               <b>Auto Fill</b>
               <small>
-                بعد از ذخیره کلید، پاسخ سؤال‌های موجود خودکار انتخاب شوند.
+                بعد از ذخیره کلید، پاسخ سؤالهای موجود خودکار انتخاب شوند.
               </small>
             </span>
 
@@ -2824,11 +3301,11 @@ Now answer the questions below:
           </label>
 
           <div class="azy-note">
-            آزمون‌یار Submit یا Finish Attempt را خودکار انجام نمی‌دهد.
+            آزمونیار Submit یا Finish Attempt را خودکار انجام نمیدهد.
           </div>
 
           <div class="azy-footer">
-            <span>Console Edition v3.1.1</span>
+            <span>Console Edition v3.2.0</span>
             <span class="azy-footer-secure">ذخیره محلی روی مرورگر</span>
           </div>
         </section>
@@ -2840,8 +3317,8 @@ Now answer the questions below:
         >
           <div class="azy-help">
             <strong>خروجی آماده است.</strong>
-            این متن شامل Prompt مخصوص ChatGPT، تمام سؤال‌های ذخیره‌شده
-            و گزینه‌های آن‌هاست. می‌توانی آن را مستقیم Copy کنی یا به‌صورت TXT دانلود کنی.
+            این متن شامل Prompt مخصوص ChatGPT، تمام سؤالهای ذخیرهشده
+            و گزینههای آنهاست. میتوانی آن را مستقیم Copy کنی یا بهصورت TXT دانلود کنی.
           </div>
 
           <textarea
@@ -2850,7 +3327,7 @@ Now answer the questions below:
             style="min-height:330px"
             readonly
             spellcheck="false"
-            aria-label="پیش‌نمایش خروجی"
+            aria-label="پیشنمایش خروجی"
           ></textarea>
 
           <div
@@ -2889,7 +3366,7 @@ Now answer the questions below:
             <strong>کلید پاسخ ChatGPT را اینجا Paste کن.</strong><br>
             فرمت پیشنهادی:
             <b>1. D</b>، <b>2. B</b>، <b>3. A</b>.
-            فرمت کوتاه مثل <b>DBAC...</b> و JSON نیز پشتیبانی می‌شود.
+            فرمت کوتاه مثل <b>DBAC...</b> و JSON نیز پشتیبانی میشود.
           </div>
 
           <textarea
@@ -2917,7 +3394,7 @@ Now answer the questions below:
               id="azy-fill-2"
               type="button"
             >
-              ↯ پر کردن پاسخ‌ها
+              ↯ پر کردن پاسخها
             </button>
           </div>
 
@@ -2926,6 +3403,146 @@ Now answer the questions below:
           <div class="azy-footer">
             <span>Answer Key</span>
             <span class="azy-footer-secure">بدون ارسال خودکار</span>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section
+          class="azy-view"
+          data-view="settings"
+        >
+          <div class="azy-settings-group">
+            <div class="azy-settings-head">
+              <b>رفتار آزمونیار</b>
+              <span>نحوه جمعآوری سؤالها، پاسخدهی و نمایش پنل را تنظیم کن.</span>
+            </div>
+
+            <div class="azy-settings-body">
+              <label class="azy-toggle">
+                <span>
+                  <b>ذخیره خودکار سؤالها</b>
+                  <small>هر سؤال جدیدی که وارد صفحه شود بهصورت خودکار ذخیره شود.</small>
+                </span>
+
+                <input
+                  type="checkbox"
+                  id="azy-settings-auto-capture"
+                  aria-label="ذخیره خودکار سؤالها در تنظیمات"
+                >
+              </label>
+
+              <label class="azy-toggle">
+                <span>
+                  <b>Auto Fill</b>
+                  <small>اگر کلید پاسخ ذخیره شده باشد، پاسخ سؤالهای موجود خودکار انتخاب شوند.</small>
+                </span>
+
+                <input
+                  type="checkbox"
+                  id="azy-settings-auto-fill"
+                  aria-label="Auto Fill در تنظیمات"
+                >
+              </label>
+
+              <label class="azy-toggle">
+                <span>
+                  <b>باز شدن پنل در شروع</b>
+                  <small>پس از اجرای اسکریپت، بهجای حباب کوچک، پنل کامل باز شود.</small>
+                </span>
+
+                <input
+                  type="checkbox"
+                  id="azy-open-on-start"
+                  aria-label="باز شدن پنل در شروع"
+                >
+              </label>
+
+              <label class="azy-toggle">
+                <span>
+                  <b>اعلانهای Toast</b>
+                  <small>پیامهای موفقیت، هشدار و خطا در پایین صفحه نمایش داده شوند.</small>
+                </span>
+
+                <input
+                  type="checkbox"
+                  id="azy-notifications"
+                  aria-label="اعلانهای Toast"
+                >
+              </label>
+            </div>
+          </div>
+
+          <div class="azy-settings-group">
+            <div class="azy-settings-head">
+              <b>راهنما و Onboarding</b>
+              <span>آموزش را دوباره ببین یا تنظیم کن که در اجرای بعدی نمایش داده شود.</span>
+            </div>
+
+            <div class="azy-settings-actions">
+              <button
+                class="azy-btn azy-primary"
+                id="azy-show-onboarding"
+                type="button"
+              >
+                ◈ نمایش آموزش
+              </button>
+
+              <button
+                class="azy-btn"
+                id="azy-reset-onboarding"
+                type="button"
+              >
+                ↻ نمایش در اجرای بعد
+              </button>
+            </div>
+          </div>
+
+          <div class="azy-settings-group">
+            <div class="azy-settings-head">
+              <b>دادهها و پشتیبان</b>
+              <span>یک نسخه JSON از دادههای آزمونیار بگیر یا فقط اطلاعات همین آزمون را پاک کن.</span>
+            </div>
+
+            <div class="azy-settings-actions">
+              <button
+                class="azy-btn"
+                id="azy-backup-data"
+                type="button"
+              >
+                ↓ پشتیبان JSON
+              </button>
+
+              <button
+                class="azy-btn azy-danger"
+                id="azy-clear-current-exam"
+                type="button"
+              >
+                ⌫ پاک کردن این آزمون
+              </button>
+            </div>
+
+            <div class="azy-storage-row">
+              <span>حجم ذخیره محلی</span>
+              <strong id="azy-storage-size">0 KB</strong>
+            </div>
+          </div>
+
+          <div class="azy-privacy-card">
+            <div class="azy-privacy-icon">✓</div>
+
+            <div>
+              <strong style="display:block;color:#bbf7d0;font-size:9px;margin-bottom:3px">
+                دادهها روی همین مرورگر میمانند
+              </strong>
+              سؤالها، کلید پاسخ و تنظیمات با localStorage ذخیره میشوند.
+              آزمونیار در این نسخه اطلاعات را به سرور خارجی ارسال نمیکند و
+              Submit / Finish Attempt را نیز خودکار انجام نمیدهد.
+            </div>
+          </div>
+
+          <div class="azy-footer">
+            <span>Console Edition v3.2.0</span>
+            <span class="azy-footer-secure">Settings + Onboarding</span>
           </div>
         </section>
 
@@ -2943,7 +3560,7 @@ Now answer the questions below:
         <div class="azy-toast-icon" id="azy-toast-icon">i</div>
 
         <div class="azy-toast-copy">
-          <span class="azy-toast-title" id="azy-toast-title">آزمون‌یار</span>
+          <span class="azy-toast-title" id="azy-toast-title">آزمونیار</span>
           <span class="azy-toast-message" id="azy-toast-message"></span>
         </div>
 
@@ -2957,6 +3574,296 @@ Now answer the questions below:
         </button>
 
         <div class="azy-toast-progress"></div>
+      </div>
+    </div>
+
+    <!-- Onboarding Modal -->
+    <div
+      class="azy-modal azy-onboarding-modal"
+      id="azy-onboarding-modal"
+      role="presentation"
+    >
+      <div
+        class="azy-onboarding-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="azy-onboarding-title"
+      >
+        <div class="azy-onboarding-top">
+          <div class="azy-onboarding-brand">
+            <div class="azy-onboarding-mini-logo" aria-hidden="true">آ</div>
+
+            <div>
+              <b>آزمونیار</b>
+              <small>شروع سریع و مرحلهبهمرحله</small>
+            </div>
+          </div>
+
+          <span class="azy-onboarding-step-count" id="azy-onboarding-count">
+            1 / 5
+          </span>
+        </div>
+
+        <div class="azy-onboarding-progress">
+          <div id="azy-onboarding-progress-bar"></div>
+        </div>
+
+        <div class="azy-onboarding-content">
+          <section
+            class="azy-onboarding-step active"
+            data-onboarding-step="1"
+          >
+            <div class="azy-onboarding-visual">آ</div>
+
+            <h2 id="azy-onboarding-title">آزمونیار چیست؟</h2>
+
+            <p>
+              یک دستیار محلی برای آزمونهای تمرینی Moodle است که سؤالها را جمع میکند،
+              برای ChatGPT خروجی آماده میسازد و کلید پاسخ را دوباره داخل آزمون استفاده میکند.
+            </p>
+
+            <div class="azy-onboarding-points">
+              <div class="azy-onboarding-point">
+                <i>1</i>
+                <span>سؤالها و گزینههای موجود در صفحه شناسایی و ذخیره میشوند.</span>
+              </div>
+
+              <div class="azy-onboarding-point">
+                <i>2</i>
+                <span>همه اطلاعات در localStorage همین مرورگر باقی میمانند.</span>
+              </div>
+
+              <div class="azy-onboarding-point">
+                <i>3</i>
+                <span>دکمه Submit یا Finish Attempt هیچوقت خودکار زده نمیشود.</span>
+              </div>
+            </div>
+          </section>
+
+          <section
+            class="azy-onboarding-step"
+            data-onboarding-step="2"
+          >
+            <div class="azy-onboarding-visual">↻</div>
+
+            <h2>مرحله ۱: سؤالها را جمع کن</h2>
+
+            <p>
+              آزمونیار سؤالهای موجود در DOM را میخواند. اگر آزمون چندصفحه باشد،
+              هنگام رفتن به سؤال یا صفحه بعدی، سؤالهای جدید به ذخیره قبلی اضافه میشوند.
+            </p>
+
+            <div class="azy-onboarding-points">
+              <div class="azy-onboarding-point">
+                <i>✓</i>
+                <span>عدد «ذخیرهشده / کل آزمون» نشان میدهد چند سؤال جمع شده است.</span>
+              </div>
+
+              <div class="azy-onboarding-point">
+                <i>↻</i>
+                <span>«اسکن همه سؤالها» هر زمان خواستی یک اسکن دستی انجام میدهد.</span>
+              </div>
+
+              <div class="azy-onboarding-point">
+                <i>A</i>
+                <span>گزینههای A/B/C/D همراه با متن خود سؤال ذخیره میشوند.</span>
+              </div>
+            </div>
+          </section>
+
+          <section
+            class="azy-onboarding-step"
+            data-onboarding-step="3"
+          >
+            <div class="azy-onboarding-visual">⇩</div>
+
+            <h2>مرحله ۲: برای ChatGPT خروجی بگیر</h2>
+
+            <p>
+              وقتی سؤالها کامل شدند، از تب خروجی استفاده کن. فایل TXT علاوه بر سؤالها،
+              Prompt آماده دارد تا پاسخ دقیقا به فرمت قابل استفاده آزمونیار برگردد.
+            </p>
+
+            <div class="azy-onboarding-points">
+              <div class="azy-onboarding-point">
+                <i>⧉</i>
+                <span>«کپی برای ChatGPT» همه Prompt + Questions را Clipboard میکند.</span>
+              </div>
+
+              <div class="azy-onboarding-point">
+                <i>↓</i>
+                <span>«دانلود TXT» همان محتوا را در یک فایل قابل Upload ذخیره میکند.</span>
+              </div>
+
+              <div class="azy-onboarding-point">
+                <i>50</i>
+                <span>قبل از ارسال، بهتر است تعداد ذخیرهشده با تعداد کل آزمون برابر باشد.</span>
+              </div>
+            </div>
+          </section>
+
+          <section
+            class="azy-onboarding-step"
+            data-onboarding-step="4"
+          >
+            <div class="azy-onboarding-visual">✓</div>
+
+            <h2>مرحله ۳: کلید پاسخ را برگردان</h2>
+
+            <p>
+              پاسخ ChatGPT را در تب «پاسخها» Paste کن، کلید را ذخیره کن و سپس
+              پاسخهای موجود در صفحه را پر یا بررسی کن.
+            </p>
+
+            <div class="azy-onboarding-points">
+              <div class="azy-onboarding-point">
+                <i>1</i>
+                <span>فرمت پیشنهادی: 1. D ، 2. B ، 3. A و به همین ترتیب.</span>
+              </div>
+
+              <div class="azy-onboarding-point">
+                <i>↯</i>
+                <span>Auto Fill فقط گزینهها را انتخاب میکند؛ ارسال نهایی با خود کاربر است.</span>
+              </div>
+
+              <div class="azy-onboarding-point">
+                <i>◎</i>
+                <span>«بررسی انتخابها» انتخاب فعلی را با کلید ذخیرهشده مقایسه میکند.</span>
+              </div>
+            </div>
+          </section>
+
+          <section
+            class="azy-onboarding-step"
+            data-onboarding-step="5"
+          >
+            <div class="azy-onboarding-visual">⚙</div>
+
+            <h2>همه چیز آماده است</h2>
+
+            <p>
+              در Settings میتوانی Auto Capture، Auto Fill، باز شدن پنل و اعلانها را تغییر دهی،
+              آموزش را دوباره اجرا کنی یا از دادهها پشتیبان بگیری.
+            </p>
+
+            <div class="azy-onboarding-points">
+              <div class="azy-onboarding-point">
+                <i>⚙</i>
+                <span>تنظیمات برای دفعات بعدی در همین مرورگر ذخیره میشوند.</span>
+              </div>
+
+              <div class="azy-onboarding-point">
+                <i>↓</i>
+                <span>پشتیبان JSON شامل تنظیمات و همه آزمونهای ذخیرهشده است.</span>
+              </div>
+
+              <div class="azy-onboarding-point">
+                <i>✓</i>
+                <span>حالا فقط آزمون را جلو برو؛ جمعآوری میتواند خودکار انجام شود.</span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="azy-onboarding-dots">
+          <span class="azy-onboarding-dot active" data-onboarding-dot="1"></span>
+          <span class="azy-onboarding-dot" data-onboarding-dot="2"></span>
+          <span class="azy-onboarding-dot" data-onboarding-dot="3"></span>
+          <span class="azy-onboarding-dot" data-onboarding-dot="4"></span>
+          <span class="azy-onboarding-dot" data-onboarding-dot="5"></span>
+        </div>
+
+        <div class="azy-onboarding-actions">
+          <button
+            class="azy-btn"
+            id="azy-onboarding-prev"
+            type="button"
+          >
+            قبلی
+          </button>
+
+          <button
+            class="azy-btn azy-primary"
+            id="azy-onboarding-next"
+            type="button"
+          >
+            بعدی
+          </button>
+
+          <button
+            class="azy-btn"
+            id="azy-onboarding-later"
+            type="button"
+          >
+            بعداً
+          </button>
+        </div>
+
+        <div class="azy-onboarding-secondary">
+          <button
+            class="azy-link-btn"
+            id="azy-onboarding-never"
+            type="button"
+          >
+            دیگر خودکار نشان نده
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Confirm Modal -->
+    <div
+      class="azy-modal"
+      id="azy-data-modal"
+      role="presentation"
+    >
+      <div
+        class="azy-modal-card"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="azy-data-modal-title"
+        aria-describedby="azy-data-modal-description"
+      >
+        <div class="azy-modal-content">
+          <div class="azy-modal-icon" aria-hidden="true">!</div>
+
+          <h3
+            class="azy-modal-title"
+            id="azy-data-modal-title"
+          >
+            اطلاعات این آزمون پاک شود؟
+          </h3>
+
+          <p
+            class="azy-modal-description"
+            id="azy-data-modal-description"
+          >
+            سؤالهای ذخیرهشده و کلید پاسخ همین آزمون حذف میشوند.
+            تنظیمات کلی آزمونیار دستنخورده باقی میمانند.
+          </p>
+
+          <div class="azy-modal-meta">
+            این کار فقط روی آزمون فعلی انجام میشود.
+          </div>
+        </div>
+
+        <div class="azy-modal-actions">
+          <button
+            class="azy-btn"
+            id="azy-data-cancel"
+            type="button"
+          >
+            انصراف
+          </button>
+
+          <button
+            class="azy-btn azy-modal-danger"
+            id="azy-data-confirm"
+            type="button"
+          >
+            بله، پاک کن
+          </button>
+        </div>
       </div>
     </div>
 
@@ -2980,15 +3887,15 @@ Now answer the questions below:
             class="azy-modal-title"
             id="azy-close-modal-title"
           >
-            آزمون‌یار بسته شود؟
+            آزمونیار بسته شود؟
           </h3>
 
           <p
             class="azy-modal-description"
             id="azy-close-modal-description"
           >
-            پنل و حباب از صفحه مخفی می‌شوند؛ سؤال‌ها، کلید پاسخ و تنظیمات
-            ذخیره‌شده پاک نخواهند شد.
+            پنل و حباب از صفحه مخفی میشوند؛ سؤالها، کلید پاسخ و تنظیمات
+            ذخیرهشده پاک نخواهند شد.
           </p>
 
           <div class="azy-modal-meta">
@@ -3056,6 +3963,12 @@ Now answer the questions below:
       $("#azy-preview-text").value =
         buildOutputText();
     }
+
+    if (
+      name === "settings"
+    ) {
+      updateUI();
+    }
   }
 
   // ============================================================
@@ -3082,10 +3995,18 @@ Now answer the questions below:
     return "info";
   }
 
-  function toast(message, type = "auto", duration = 3200) {
+  function toast(message, type = "auto", duration = 3200, force = false) {
     const el = $("#azy-toast");
 
     if (!el) {
+      return;
+    }
+
+    if (
+      !force &&
+      state.settings.notifications === false &&
+      type !== "error"
+    ) {
       return;
     }
 
@@ -3112,11 +4033,11 @@ Now answer the questions below:
 
       info: {
         icon: "i",
-        title: "آزمون‌یار"
+        title: "آزمونیار"
       }
     }[resolvedType] || {
       icon: "i",
-      title: "آزمون‌یار"
+      title: "آزمونیار"
     };
 
     el.dataset.type = resolvedType;
@@ -3168,6 +4089,244 @@ Now answer the questions below:
   }
 
   // ============================================================
+  // ONBOARDING
+  // ============================================================
+
+  let onboardingStep = 1;
+  const ONBOARDING_STEPS = 5;
+
+  function setOnboardingStep(step) {
+    onboardingStep =
+      Math.min(
+        ONBOARDING_STEPS,
+        Math.max(1, Number(step) || 1)
+      );
+
+    state.onboarding.lastStep =
+      onboardingStep;
+
+    saveState();
+
+    document
+      .querySelectorAll(
+        `#${APP_ID} [data-onboarding-step]`
+      )
+      .forEach(section => {
+        section.classList.toggle(
+          "active",
+          Number(
+            section.dataset.onboardingStep
+          ) === onboardingStep
+        );
+      });
+
+    document
+      .querySelectorAll(
+        `#${APP_ID} [data-onboarding-dot]`
+      )
+      .forEach(dot => {
+        dot.classList.toggle(
+          "active",
+          Number(
+            dot.dataset.onboardingDot
+          ) === onboardingStep
+        );
+      });
+
+    const count =
+      $("#azy-onboarding-count");
+
+    if (count) {
+      count.textContent =
+        `${onboardingStep} / ${ONBOARDING_STEPS}`;
+    }
+
+    const bar =
+      $("#azy-onboarding-progress-bar");
+
+    if (bar) {
+      bar.style.width =
+        `${onboardingStep / ONBOARDING_STEPS * 100}%`;
+    }
+
+    const previous =
+      $("#azy-onboarding-prev");
+
+    if (previous) {
+      previous.disabled =
+        onboardingStep === 1;
+
+      previous.style.opacity =
+        onboardingStep === 1
+          ? ".45"
+          : "1";
+    }
+
+    const next =
+      $("#azy-onboarding-next");
+
+    if (next) {
+      next.textContent =
+        onboardingStep === ONBOARDING_STEPS
+          ? "شروع استفاده"
+          : "بعدی";
+    }
+  }
+
+  function showOnboarding(force = false) {
+    const onboarding =
+      state.onboarding || DEFAULT_STATE.onboarding;
+
+    if (!force) {
+      if (onboarding.disabled) {
+        return;
+      }
+
+      if (onboarding.completed) {
+        return;
+      }
+
+      if (
+        onboarding.remindAfter &&
+        Date.now() < onboarding.remindAfter
+      ) {
+        return;
+      }
+    }
+
+    const startStep =
+      force
+        ? 1
+        : onboarding.lastStep || 1;
+
+    setOnboardingStep(startStep);
+
+    $("#azy-onboarding-modal")
+      ?.classList.add(
+        "show"
+      );
+
+    setTimeout(
+      () =>
+        $("#azy-onboarding-next")
+          ?.focus(),
+      30
+    );
+  }
+
+  function hideOnboarding() {
+    $("#azy-onboarding-modal")
+      ?.classList.remove(
+        "show"
+      );
+  }
+
+  function completeOnboarding() {
+    state.onboarding.completed =
+      true;
+
+    state.onboarding.disabled =
+      false;
+
+    state.onboarding.remindAfter =
+      0;
+
+    state.onboarding.lastStep =
+      1;
+
+    saveState();
+    hideOnboarding();
+
+    $("#azy-panel")
+      ?.classList.remove(
+        "azy-hidden"
+      );
+
+    $("#azy-bubble")
+      ?.classList.add(
+        "azy-hidden"
+      );
+
+    toast(
+      "آماده است؛ میتوانی از خانه شروع کنی.",
+      "success",
+      3200,
+      true
+    );
+  }
+
+  function remindOnboardingLater() {
+    state.onboarding.completed =
+      false;
+
+    state.onboarding.disabled =
+      false;
+
+    state.onboarding.remindAfter =
+      Date.now() +
+      24 * 60 * 60 * 1000;
+
+    state.onboarding.lastStep =
+      onboardingStep;
+
+    saveState();
+    hideOnboarding();
+
+    toast(
+      "راهنما تا ۲۴ ساعت دیگر نمایش داده نمیشود.",
+      "info",
+      3000,
+      true
+    );
+  }
+
+  function disableOnboarding() {
+    state.onboarding.completed =
+      true;
+
+    state.onboarding.disabled =
+      true;
+
+    state.onboarding.remindAfter =
+      0;
+
+    state.onboarding.lastStep =
+      1;
+
+    saveState();
+    hideOnboarding();
+
+    toast(
+      "نمایش خودکار راهنما غیرفعال شد؛ از Settings میتوانی دوباره آن را باز کنی.",
+      "info",
+      3800,
+      true
+    );
+  }
+
+  function resetOnboardingForNextRun() {
+    state.onboarding.completed =
+      false;
+
+    state.onboarding.disabled =
+      false;
+
+    state.onboarding.remindAfter =
+      0;
+
+    state.onboarding.lastStep =
+      1;
+
+    saveState();
+    updateUI();
+
+    toast(
+      "Onboarding در اجرای بعدی دوباره نمایش داده میشود.",
+      "success"
+    );
+  }
+
+  // ============================================================
   // UPDATE UI
   // ============================================================
 
@@ -3215,6 +4374,48 @@ Now answer the questions below:
     $("#azy-auto-fill").checked =
       state.settings.autoFill;
 
+    const settingsAutoCapture =
+      $("#azy-settings-auto-capture");
+
+    if (settingsAutoCapture) {
+      settingsAutoCapture.checked =
+        state.settings.autoCapture;
+    }
+
+    const settingsAutoFill =
+      $("#azy-settings-auto-fill");
+
+    if (settingsAutoFill) {
+      settingsAutoFill.checked =
+        state.settings.autoFill;
+    }
+
+    const openOnStart =
+      $("#azy-open-on-start");
+
+    if (openOnStart) {
+      openOnStart.checked =
+        !!state.settings.openOnStart;
+    }
+
+    const notifications =
+      $("#azy-notifications");
+
+    if (notifications) {
+      notifications.checked =
+        state.settings.notifications !== false;
+    }
+
+    const storageSize =
+      $("#azy-storage-size");
+
+    if (storageSize) {
+      storageSize.textContent =
+        formatBytes(
+          getStorageSize()
+        );
+    }
+
     const examTitle =
       $("#azy-exam-title");
 
@@ -3244,7 +4445,7 @@ Now answer the questions below:
           "#6ee7b7";
       } else {
         statusChip.textContent =
-          "در حال جمع‌آوری";
+          "در حال جمعآوری";
 
         statusChip.style.borderColor =
           "rgba(99,102,241,.24)";
@@ -3332,7 +4533,7 @@ Now answer the questions below:
         );
 
       toast(
-        "آزمون‌یار بسته شد؛ داده‌های ذخیره‌شده محفوظ هستند.",
+        "آزمونیار بسته شد؛ دادههای ذخیرهشده محفوظ هستند.",
         "info",
         2400
       );
@@ -3359,8 +4560,38 @@ Now answer the questions below:
   document.addEventListener(
     "keydown",
     event => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
       if (
-        event.key === "Escape" &&
+        $("#azy-onboarding-modal")
+          ?.classList.contains(
+            "show"
+          )
+      ) {
+        remindOnboardingLater();
+        return;
+      }
+
+      if (
+        $("#azy-data-modal")
+          ?.classList.contains(
+            "show"
+          )
+      ) {
+        $("#azy-data-modal")
+          ?.classList.remove(
+            "show"
+          );
+
+        $("#azy-clear-current-exam")
+          ?.focus();
+
+        return;
+      }
+
+      if (
         $("#azy-close-modal")
           ?.classList.contains(
             "show"
@@ -3437,6 +4668,7 @@ Now answer the questions below:
         event.target.checked;
 
       saveState();
+      updateUI();
 
       toast(
         event.target.checked
@@ -3452,6 +4684,7 @@ Now answer the questions below:
         event.target.checked;
 
       saveState();
+      updateUI();
 
       if (
         event.target.checked
@@ -3467,6 +4700,171 @@ Now answer the questions below:
           : "Auto Fill خاموش شد"
       );
     };
+
+  const settingsAutoCapture =
+    $("#azy-settings-auto-capture");
+
+  if (settingsAutoCapture) {
+    settingsAutoCapture.onchange =
+      event => {
+        state.settings.autoCapture =
+          event.target.checked;
+
+        saveState();
+        updateUI();
+
+        toast(
+          event.target.checked
+            ? "ذخیره خودکار روشن شد"
+            : "ذخیره خودکار خاموش شد"
+        );
+      };
+  }
+
+  const settingsAutoFill =
+    $("#azy-settings-auto-fill");
+
+  if (settingsAutoFill) {
+    settingsAutoFill.onchange =
+      event => {
+        state.settings.autoFill =
+          event.target.checked;
+
+        saveState();
+        updateUI();
+
+        if (event.target.checked) {
+          fillCurrentAnswers(true);
+        }
+
+        toast(
+          event.target.checked
+            ? "Auto Fill روشن شد"
+            : "Auto Fill خاموش شد"
+        );
+      };
+  }
+
+  $("#azy-open-on-start").onchange =
+    event => {
+      state.settings.openOnStart =
+        event.target.checked;
+
+      saveState();
+      updateUI();
+
+      toast(
+        event.target.checked
+          ? "در اجرای بعدی پنل بهصورت باز شروع میشود."
+          : "در اجرای بعدی آزمونیار با حباب کوچک شروع میشود.",
+        "info"
+      );
+    };
+
+  $("#azy-notifications").onchange =
+    event => {
+      state.settings.notifications =
+        event.target.checked;
+
+      saveState();
+      updateUI();
+
+      toast(
+        event.target.checked
+          ? "اعلانهای Toast روشن شدند."
+          : "اعلانهای Toast خاموش شدند.",
+        "info",
+        2800,
+        true
+      );
+    };
+
+  $("#azy-show-onboarding").onclick =
+    () => {
+      showOnboarding(true);
+    };
+
+  $("#azy-reset-onboarding").onclick =
+    resetOnboardingForNextRun;
+
+  $("#azy-backup-data").onclick =
+    downloadBackup;
+
+  $("#azy-clear-current-exam").onclick =
+    () => {
+      $("#azy-data-modal")
+        ?.classList.add(
+          "show"
+        );
+
+      setTimeout(
+        () =>
+          $("#azy-data-cancel")
+            ?.focus(),
+        20
+      );
+    };
+
+  $("#azy-data-cancel").onclick =
+    () => {
+      $("#azy-data-modal")
+        ?.classList.remove(
+          "show"
+        );
+    };
+
+  $("#azy-data-confirm").onclick =
+    () => {
+      $("#azy-data-modal")
+        ?.classList.remove(
+          "show"
+        );
+
+      clearCurrentExamData();
+    };
+
+  $("#azy-data-modal").addEventListener(
+    "click",
+    event => {
+      if (
+        event.target ===
+        $("#azy-data-modal")
+      ) {
+        $("#azy-data-modal")
+          ?.classList.remove(
+            "show"
+          );
+      }
+    }
+  );
+
+  $("#azy-onboarding-prev").onclick =
+    () => {
+      setOnboardingStep(
+        onboardingStep - 1
+      );
+    };
+
+  $("#azy-onboarding-next").onclick =
+    () => {
+      if (
+        onboardingStep >=
+        ONBOARDING_STEPS
+      ) {
+        completeOnboarding();
+        return;
+      }
+
+      setOnboardingStep(
+        onboardingStep + 1
+      );
+    };
+
+  $("#azy-onboarding-later").onclick =
+    remindOnboardingLater;
+
+  $("#azy-onboarding-never").onclick =
+    disableOnboarding;
 
   // ============================================================
   // WATCH DOM
@@ -3573,8 +4971,29 @@ Now answer the questions below:
 
   updateUI();
 
+  if (
+    state.settings.openOnStart
+  ) {
+    $("#azy-panel")
+      ?.classList.remove(
+        "azy-hidden"
+      );
+
+    $("#azy-bubble")
+      ?.classList.add(
+        "azy-hidden"
+      );
+  }
+
+  setTimeout(
+    () => {
+      showOnboarding(false);
+    },
+    550
+  );
+
   console.log(
-    `%cآزمون‌یار v3 فعال شد — ${getSortedQuestions().length}/${getExpectedQuestionCount()} سؤال پیدا شد`,
+    `%cآزمونیار v3.2 فعال شد — ${getSortedQuestions().length}/${getExpectedQuestionCount()} سؤال پیدا شد`,
     `
       color:#10b981;
       font-size:15px;
@@ -3582,4 +5001,4 @@ Now answer the questions below:
     `
   );
 })();
-```
+‍‍‍```
